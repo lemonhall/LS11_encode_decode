@@ -208,5 +208,188 @@ console.log("最终解压结果长度:",result.length);
 // Creates a new Buffer containing UTF-8 bytes of the string 'buffer'
 //  const buf = Buffer.from([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]);
 
+console.log(result);
+
+//===================================================================
+// 先来看KAO.LZW，解压后共有256个分段，其内容都是每3个字节保存8个像素
+// 前128个分段（0-127）的长度都是1920，内容是64*80的人物头像。
+// 后128个分段（128-255）的长度都是864，内容是48*48的发现物图标。
+
+
+// 如第一个分段（约翰法雷尔的头像）
+
+// 解压后前三个字节是00 44 00
+
+// 二进制为
+// [0,0,0,0,0,0,0,0]
+// [0,1,0,0,0,1,0,0]
+// [0,0,0,0,0,0,0,0]
+//===================================================================
+// 三个字节的第1位 0 0 0 = 0
+// 三个字节的第2位 0 1 0 = 2
+// 三个字节的第3位 0 0 0 = 0
+// 三个字节的第4位 0 0 0 = 0
+// 三个字节的第5位 0 0 0 = 0
+// 三个字节的第6位 0 1 0 = 2
+// 三个字节的第7位 0 0 0 = 0
+// 三个字节的第8位 0 0 0 = 0
+//===================================================================
+
+function read8bitInfile(index){
+		var img_buf1 = bitwise.readByte(result[index+0]);
+		var img_buf2 = bitwise.readByte(result[index+1]);
+		var img_buf3 = bitwise.readByte(result[index+2]);
+
+		//打印出来三个字节的二进制形式供参考
+		//console.log(img_buf1);
+		//console.log(img_buf2);
+		//console.log(img_buf3);
+
+		var eight_bits = new Array();
+
+		for(var i =0; i<8;i++){
+			eight_bits[i] = new Array();
+			eight_bits[i].push(img_buf1[i]);
+			eight_bits[i].push(img_buf2[i]);
+			eight_bits[i].push(img_buf3[i]);
+		}
+
+		var bit_in_number = new Array();
+		var bit_in_buf_array = new Array();
+		//打印最终的8个像素点
+		for(var one_bit in eight_bits){
+			//console.log(eight_bits[one_bit]);
+			var bit_buf = bitwise.createBuffer(padBits(eight_bits[one_bit]));
+			var bit_int = bit_buf.readInt8();
+				bit_in_number[one_bit] = bit_int;
+				bit_in_buf_array.push(bit_buf);
+			//console.log(bit_int);
+		}
+		//打印最终的像素序号
+		//console.log(bit_in_number);
+		//console.log(bit_in_buf_array);
+		return bit_in_number;
+
+}
+
+// 1920个字节，除以3，那就是640;
+// 640*8=5120个像素
+// 宽是64个像素，那就是64/8=8;
+// 意思就是每读取8个单元，换一行
+// 8个单元，每个单元3字节，那就是24个字节
+// 入参为：0\1\2\3\4\5\6\7，这就是第一行了
+// 1920/24==80，正好是80行
+
+// 这是一个3字节的色盘，那么就是说每个像素需要用3字节去表示
+// 那么就是24位=3x8的方案了
+//另外，每行的宽度是64，64*3=192个字节；
+//> 192 % 4 ===0
+
+
+// 0: 0x000000
+// 1: 0x00A060
+// 2: 0xD04000
+// 3: 0xF0A060
+// 4: 0x0040D0
+// 5: 0x00A0F0
+// 6: 0xD060A0
+// 7: 0xF0E0D0
+
+//for require("bmp-js");
+var plate = new Array();
+	// plate[0] = 0x00000000;
+	// plate[1] = 0x0000A060;
+	// plate[2] = 0x00D04000;
+	// plate[3] = 0x00F0A060;
+	// plate[4] = 0x000040D0;
+	// plate[5] = 0x0000A0F0;
+	// plate[6] = 0x00D060A0;
+	// plate[7] = 0x00F0E0D0;
+	plate[0] = Buffer.from("000000",'hex');
+	plate[1] = Buffer.from("00a060",'hex');
+	plate[2] = Buffer.from("d04000",'hex');
+	plate[3] = Buffer.from("f0a060",'hex');
+	plate[4] = Buffer.from("0040d0",'hex');
+	plate[5] = Buffer.from("00a0f0",'hex');
+	plate[6] = Buffer.from("d060a0",'hex');
+	plate[7] = Buffer.from("f0e0d0",'hex');
+
+var imageData_real = new Array();
+
+for(var i=0;i<640;i++){
+	var eight_bits = read8bitInfile(i);
+		for(var bit_index in eight_bits){
+			//拿到了一个像素的序号
+			var bit_inSeq = eight_bits[bit_index];
+			var real_bit  = plate[bit_inSeq];
+			//console.log(real_bit[1]);
+			imageData_real.push(real_bit[0]);
+			imageData_real.push(real_bit[1]);
+			imageData_real.push(real_bit[2]);
+		}
+}
+
+//https://en.wikipedia.org/wiki/BMP_file_format
+//console.log(imageData_real);
+//现在的imageData_inSeq是一个Array of Buffer;
+var imageData_buf = Buffer.from(imageData_real);
+console.log("最终解码出来的图像序号阵列大小：",imageData_buf.length);
+console.log("最终解码出来的图像缓冲区内容：");
+console.log(imageData_buf);
+
+var bmp     = require("bmp-js");
+var bmpData = {
+	data:imageData_buf,
+	rgb:true,
+	width:64,
+	height:80
+};
+var rawData = bmp.encode(bmpData);//default no compression 
+
+console.log("写入文件的内容：");
+console.log(rawData.data);
+
+fs.writeFileSync('image1.bmp',rawData.data);
+
+////========================================================
+
+
+// //这一段是require('fast-bmp');用的
+// var imageData_inSeq = new Array();
+
+// for(var i=0;i<640;i++){
+// 	var eight_bits = read8bitInfile(i);
+// 		for(var bit_index in eight_bits){
+// 			//拿到了一个像素的序号
+// 			var bit_inSeq = eight_bits[bit_index];
+// 			//console.log(bit_inSeq);
+// 			//var real_bit  = plate[bit_inSeq];
+// 			imageData_inSeq.push(bit_inSeq);
+// 		}
+// }
+// //现在的imageData_inSeq是一个Array of Buffer;
+
+// var imageData_buf = Buffer.from(imageData_inSeq);
+// console.log("最终解码出来的图像序号阵列大小：",imageData_buf.length);
+// console.log(imageData_buf);
+
+// //https://www.npmjs.com/package/fast-bmp
+// const bmp = require('fast-bmp');
+
+// const imageData = {
+//     width: 64,
+//     height: 80,
+//     data: imageData_buf,
+//     bitDepth: 24,
+//     components: 1,
+//     channels: 1
+// };
+
+// // Encode returns a Uint8Array 
+// const encoded = bmp.encode(imageData);
+
+// // In node.js 
+// fs.writeFileSync('image2.bmp', Buffer.from(encoded));
+
 
 
